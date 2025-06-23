@@ -1,0 +1,264 @@
+---
+- name: "Initial Server Setup"
+  hosts: servers
+  become: true
+  vars:
+    new_user: deploy
+    user_groups: "sudo"
+    swap_size: "4G"
+    # ssh_public_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+
+  tasks:
+    # 1. System Update and Base Packages
+    - name: "Update apt cache and upgrade all packages"
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: dist
+        cache_valid_time: 3600
+      tags: [system, packages]
+
+    - name: "Define architecture-specific APT repository URLs"
+      ansible.builtin.set_fact:
+        apt_repo_url: "{{ 'http://ports.ubuntu.com/ubuntu-ports' if 'arm' in ansible_architecture or 'aarch64' in ansible_architecture else 'http://archive.ubuntu.com/ubuntu' }}"
+        apt_security_url: "{{ 'http://ports.ubuntu.com/ubuntu-ports' if 'arm' in ansible_architecture or 'aarch64' in ansible_architecture else 'http://security.ubuntu.com/ubuntu' }}"
+      tags: [system, packages]
+
+    - name: "Ensure universe and security repositories are enabled"
+      ansible.builtin.apt_repository:
+        repo: "{{ item }}"
+        state: present
+      loop:
+        - "deb {{ apt_repo_url }} {{ ansible_distribution_release }} universe"
+        - "deb {{ apt_security_url }} {{ ansible_distribution_release }}-security main restricted universe multiverse"
+      tags: [system, packages]
+
+    - name: "Update apt cache after adding new repositories"
+      ansible.builtin.apt:
+        update_cache: yes
+      tags: [system, packages]
+
+    - name: "Install common and required packages"
+      ansible.builtin.apt:
+        name:
+          # Base
+          - vim
+          - curl
+          - wget
+          - git
+          - ufw
+          - fail2ban
+          - unattended-upgrades
+          - logwatch
+          # Hardening
+          - auditd
+          - audispd-plugins
+          - sysstat
+          - rkhunter
+          - lynis
+          - debsums
+          - jq
+          - openssl
+        state: present
+      tags: [system, packages]
+
+    # 2. Create Swap File
+    - name: "Check if swap file exists"
+      ansible.builtin.stat:
+        path: /swapfile
+      register: swap_file_check
+      tags: [system, swap]
+
+    - name: "Create swap file"
+      ansible.builtin.command: "fallocate -l {{ swap_size }} /swapfile"
+      when: not swap_file_check.stat.exists
+      tags: [system, swap]
+
+    - name: "Set swap file permissions"
+      ansible.builtin.file:
+        path: /swapfile
+        mode: '0600'
+      when: not swap_file_check.stat.exists
+      tags: [system, swap]
+
+    - name: "Make swap file"
+      ansible.builtin.command: mkswap /swapfile
+      when: not swap_file_check.stat.exists
+      tags: [system, swap]
+
+    - name: "Turn on swap"
+      ansible.builtin.command: swapon /swapfile
+      when: not swap_file_check.stat.exists
+      tags: [system, swap]
+
+    - name: "Add swap to fstab"
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        line: "/swapfile none swap sw 0 0"
+        state: present
+      tags: [system, swap]
+
+    - name: "Tune swappiness"
+      ansible.posix.sysctl:
+        name: vm.swappiness
+        value: '10'
+        state: present
+        reload: yes
+      tags: [system, swap]
+
+    # 3. User Management
+    - name: "Check if the deploy user already exists"
+      ansible.builtin.command: "id {{ new_user }}"
+      register: user_check
+      changed_when: false
+      failed_when: false # We expect this to fail if the user doesn't exist, so we tell Ansible not to treat it as a failure.
+      tags: [system, users]
+
+    - name: "Block for new user creation"
+      block:
+        - name: "Prompt for the new user password"
+          ansible.builtin.pause:
+            prompt: "Enter password for the new user '{{ new_user }}'"
+            echo: no
+          register: new_user_password_prompt
+
+        - name: "Create a new user with sudo privileges and password"
+          ansible.builtin.user:
+            name: "{{ new_user }}"
+            groups: "{{ user_groups }}"
+            append: yes
+            shell: /bin/bash
+            state: present
+            create_home: yes
+            password: "{{ new_user_password_prompt.user_input | password_hash('sha512') }}"
+      when: user_check.rc != 0 # This line ensures the block only runs if the 'id' command failed (meaning user does not exist).
+      tags: [system, users]
+
+    # 4. Firewall Configuration (UFW)
+    - name: "Set UFW default policies"
+      community.general.ufw:
+        default: "{{ item.policy }}"
+        direction: "{{ item.direction }}"
+      loop:
+        - { direction: 'incoming', policy: 'deny' }
+        - { direction: 'outgoing', policy: 'allow' }
+      tags: [system, firewall]
+
+    - name: "Rate-limit SSH connections"
+      community.general.ufw:
+        rule: limit
+        port: "22"
+        proto: tcp
+      tags: [system, firewall]
+
+    - name: "Allow HTTP and HTTPS traffic"
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "80"
+        - "443"
+      tags: [system, firewall]
+
+    - name: "Enable UFW"
+      community.general.ufw:
+        state: enabled
+      tags: [system, firewall]
+
+    # 5. Security Hardening
+    - name: "Enable and start Fail2Ban service"
+      ansible.builtin.service:
+        name: fail2ban
+        enabled: yes
+        state: started
+      tags: [system, security]
+
+    - name: "Enable automatic security updates"
+      ansible.builtin.copy:
+        src: files/20auto-upgrades
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        owner: root
+        group: root
+        mode: '0644'
+      tags: [system, security]
+
+    - name: "Secure shared memory"
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        line: "tmpfs /run/shm tmpfs ro,noexec,nosuid 0 0"
+        state: present
+      notify: Reboot Server
+      tags: [system, security]
+      
+    - name: "Harden login definitions"
+      ansible.builtin.lineinfile:
+        path: /etc/login.defs
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+      loop:
+        - { regexp: '^UMASK', line: 'UMASK           027' }
+        - { regexp: '^ENCRYPT_METHOD', line: 'ENCRYPT_METHOD SHA512' }
+      tags: [system, security]
+
+    - name: "Set minimum rounds for SHA-based password encryption"
+      ansible.builtin.lineinfile:
+        path: /etc/login.defs
+        line: "SHA_CRYPT_MIN_ROUNDS 500000"
+        state: present
+      tags: [system, security]
+
+    - name: "Disable core dumps"
+      ansible.builtin.copy:
+        src: files/99-disable-coredumps.conf
+        dest: /etc/security/limits.d/99-disable-coredumps.conf
+        owner: root
+        group: root
+        mode: '0644'
+      tags: [system, security]
+
+    - name: "Disable uncommon network protocols"
+      ansible.builtin.copy:
+        src: files/99-disable-uncommon-net.conf
+        dest: /etc/modprobe.d/99-disable-uncommon-net.conf
+        owner: root
+        group: root
+        mode: '0644'
+      tags: [system, security]
+      
+    - name: "Add legal banner"
+      ansible.builtin.copy:
+        src: files/issue_banner
+        dest: "{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - /etc/issue
+        - /etc/issue.net
+      tags: [system, security]
+    
+    # 6. Auditd Configuration
+    - name: "Copy custom auditd rules"
+      ansible.builtin.copy:
+        src: files/99-custom.rules
+        dest: /etc/audit/rules.d/99-custom.rules
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart auditd
+      tags: [system, security, auditd]
+
+  handlers:
+    - name: "Reboot Server"
+      ansible.builtin.reboot:
+        msg: "Rebooting server to apply changes"
+        connect_timeout: 5
+        reboot_timeout: 300
+        pre_reboot_delay: 0
+        post_reboot_delay: 30
+        test_command: whoami
+    
+    - name: "Restart auditd"
+      ansible.builtin.service:
+        name: auditd
+        state: restarted 
