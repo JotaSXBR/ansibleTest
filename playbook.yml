@@ -2,14 +2,10 @@
 - name: "Initial Server Setup"
   hosts: servers
   become: true
-  vars:
-    new_user: deploy
-    user_groups: "sudo"
-    swap_size: "4G"
-    # ssh_public_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+  # Variáveis agora são fornecidas via group_vars/all.yml para portabilidade.
 
   tasks:
-    # 1. System Update and Base Packages
+    # 1. Atualização do sistema e pacotes base
     - name: "Update apt cache and upgrade all packages"
       ansible.builtin.apt:
         update_cache: yes
@@ -40,7 +36,7 @@
     - name: "Install common and required packages"
       ansible.builtin.apt:
         name:
-          # Base
+          # Pacotes base
           - vim
           - curl
           - wget
@@ -49,7 +45,7 @@
           - fail2ban
           - unattended-upgrades
           - logwatch
-          # Hardening
+          # Endurecimento
           - auditd
           - audispd-plugins
           - sysstat
@@ -61,7 +57,7 @@
         state: present
       tags: [system, packages]
 
-    # 2. Create Swap File
+    # 2. Criação do arquivo de swap
     - name: "Check if swap file exists"
       ansible.builtin.stat:
         path: /swapfile
@@ -69,7 +65,7 @@
       tags: [system, swap]
 
     - name: "Create swap file"
-      ansible.builtin.command: "fallocate -l {{ swap_size }} /swapfile"
+      ansible.builtin.command: "fallocate -l {{ swap_file_size }} /swapfile"
       when: not swap_file_check.stat.exists
       tags: [system, swap]
 
@@ -105,35 +101,10 @@
         reload: yes
       tags: [system, swap]
 
-    # 3. User Management
-    - name: "Check if the deploy user already exists"
-      ansible.builtin.command: "id {{ new_user }}"
-      register: user_check
-      changed_when: false
-      failed_when: false # We expect this to fail if the user doesn't exist, so we tell Ansible not to treat it as a failure.
-      tags: [system, users]
+    # 3. Gerenciamento de usuários
+    # NOTA: A criação do usuário `deploy` e o hardening do SSH agora devem ser executados manualmente antes da execução do playbook.
 
-    - name: "Block for new user creation"
-      block:
-        - name: "Prompt for the new user password"
-          ansible.builtin.pause:
-            prompt: "Enter password for the new user '{{ new_user }}'"
-            echo: no
-          register: new_user_password_prompt
-
-        - name: "Create a new user with sudo privileges and password"
-          ansible.builtin.user:
-            name: "{{ new_user }}"
-            groups: "{{ user_groups }}"
-            append: yes
-            shell: /bin/bash
-            state: present
-            create_home: yes
-            password: "{{ new_user_password_prompt.user_input | password_hash('sha512') }}"
-      when: user_check.rc != 0 # This line ensures the block only runs if the 'id' command failed (meaning user does not exist).
-      tags: [system, users]
-
-    # 4. Firewall Configuration (UFW)
+    # 4. Configuração do firewall (UFW)
     - name: "Set UFW default policies"
       community.general.ufw:
         default: "{{ item.policy }}"
@@ -146,7 +117,7 @@
     - name: "Rate-limit SSH connections"
       community.general.ufw:
         rule: limit
-        port: "22"
+        port: "{{ ssh_port }}"
         proto: tcp
       tags: [system, firewall]
 
@@ -165,7 +136,7 @@
         state: enabled
       tags: [system, firewall]
 
-    # 5. Security Hardening
+    # 5. Endurecimento de segurança
     - name: "Enable and start Fail2Ban service"
       ansible.builtin.service:
         name: fail2ban
@@ -237,7 +208,7 @@
         - /etc/issue.net
       tags: [system, security]
     
-    # 6. Auditd Configuration
+    # 6. Configuração do Auditd
     - name: "Copy custom auditd rules"
       ansible.builtin.copy:
         src: files/99-custom.rules

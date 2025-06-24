@@ -1,70 +1,103 @@
-# Ansible Secure Ubuntu Server Setup
+# Configuração Segura de Servidor Ubuntu com Ansible
 
-This Ansible project automates the initial security hardening and configuration of a fresh Ubuntu LTS server instance. It correctly handles both x86 and ARM architectures, sets up a new user idempotently, configures an advanced firewall, and applies a comprehensive set of security hardening measures based on industry best practices.
+Este projeto Ansible automatiza o endurecimento inicial e a configuração de um servidor Ubuntu LTS recém-instalado. Ele detecta corretamente a arquitetura (x86 ou ARM), configura um firewall avançado e aplica um conjunto abrangente de medidas de segurança baseadas em boas práticas do setor. O playbook **pressupõe** a existência prévia de um usuário não-root `deploy`.
 
-## Features
+## Recursos
 
-- **System Administration**:
-  - Ensures all packages are up to date.
-  - Detects server architecture (x86/ARM) to use the correct software repositories.
-  - Creates a `4G` swap file for system stability.
-  - Idempotent User Creation: On the first run, it prompts for a password and creates a `deploy` user with `sudo` privileges. On subsequent runs, it skips this step.
+### Administração do sistema
+- Garante que todos os pacotes estejam atualizados.
+- Detecta a arquitetura do servidor para selecionar os repositórios corretos.
+- Cria um arquivo de swap (tamanho configurável em `group_vars/all.yml`).
+- Executa todas as tarefas privilegiadas através de escalonamento de privilégios (sudo) do usuário `deploy`.
 
-- **Firewall & Network Security**:
-  - Configures UFW firewall to deny incoming traffic by default.
-  - Rate-limits SSH connections to prevent brute-force attacks.
-  - Disables uncommon network protocols to reduce the kernel's attack surface.
+### Firewall e segurança de rede
+- Configura o UFW para negar tráfego de entrada por padrão.
+- Limita a taxa de conexões SSH para evitar ataques de força bruta.
+- Desativa protocolos de rede incomuns para reduzir a superfície de ataque do kernel.
 
-- **System & Security Hardening**:
-  - **Fail2ban**: Installs and enables `fail2ban`.
-  - **Unattended Upgrades**: Configures automatic security patches.
-  - **Auditd**: Installs and configures `auditd` with custom rules for deep system monitoring.
-  - **Login Security**: Hardens login policies and strengthens password encryption.
-  - **Secure Memory**: Secures shared memory and disables core dumps.
-  - **Legal Banner**: Sets a pre-login legal banner.
-  - **Auditing Tools**: Installs `lynis` and `rkhunter` for manual security scans.
+### Endurecimento do sistema
+- **Fail2ban**: instala e habilita o serviço.
+- **Atualizações automáticas**: habilita atualizações de segurança sem intervenção.
+- **Auditd**: instala e aplica regras personalizadas para auditoria profunda.
+- **Segurança de login**: reforça políticas de login e criptografia de senhas.
+- **Memória compartilhada**: monta `/run/shm` de forma segura.
+- **Banner legal**: apresenta aviso legal antes do login.
+- **Ferramentas de auditoria**: instala `lynis` e `rkhunter` para verificações manuais.
 
-- **Automatic Reboot**: Reboots the server upon completion to apply all changes.
+- **Reinicialização automática**: reinicia o servidor ao final para aplicar todas as alterações.
 
-## How to Use
+## Como Utilizar
 
-### 1. Prerequisites
-- **Ansible Control Node**: A machine with Ansible and `sshpass` installed.
-- **Ubuntu Server**: A fresh Ubuntu Server LTS instance, accessible via SSH. You need the `root` user's password.
+### 1. Pré-instalação (manual, somente uma vez)
 
-### 2. Configure the Inventory
-Open `inventory.ini` and replace `your_server_ip` with your server's public IP address.
+Conectado como `root` no VPS recém-criado:
 
-### 3. Run the Playbook
-Execute the playbook from your control node's terminal:
 ```bash
-ansible-playbook playbook.yml --ask-pass
+adduser deploy
+usermod -aG sudo deploy
 ```
-- The command will first ask for the `root` SSH password for `your_server_ip`. This is needed for the initial connection.
-- If this is the first time running the playbook, it will then prompt you to enter and confirm a new password for the `deploy` user.
 
-On subsequent runs, the playbook will recognize that the user and configuration already exist and will complete very quickly without prompting for a user password.
+Em seguida, edite `/etc/ssh/sshd_config` para:
 
-### 4. Connect as the New User
-After the playbook completes and the server reboots, you can log in:
+* Desabilitar login como root (`PermitRootLogin no`);
+* (Opcional) Alterar a porta padrão do SSH;
+* Garantir que a autenticação por chave pública esteja ativada e a chave do usuário `deploy` em `~/.ssh/authorized_keys`.
+
+Caso altere a porta, libere-a no UFW **antes** de reiniciar o serviço.
+
+Confirme que é possível acessar via `ssh deploy@servidor` antes de prosseguir.
+
+### 2. Configurar o inventário
+
+Edite `inventory.ini` e substitua `your_server_ip` pelo IP público do servidor:
+
+```ini
+[servers]
+your_server_ip ansible_user=deploy
+```
+
+### 3. Executar o playbook
+
+No nó de controle:
+
+```bash
+ansible-playbook playbook.yml -i inventory.ini --ask-become-pass
+```
+
+Será solicitada a senha de sudo do usuário `deploy`.
+
+### 4. Verificação pós-execução
+
 ```bash
 ssh deploy@your_server_ip
+# ou, se mudou a porta
+ssh deploy@your_server_ip -p <porta>
 ```
-Use the password you created during the playbook run.
 
-## Notes & Troubleshooting
+## Observações
 
-- **Host Key Checking**: The `ansible.cfg` is set with `host_key_checking = False` for convenience in test environments. For production, it is highly recommended to set this to `True` to prevent security risks.
+- **Verificação de chave do host**: o `ansible.cfg` está com `host_key_checking = False` para conveniência em ambientes de teste. Em produção, altere para `True`.
+- **Disponibilidade de pacotes**: `apt-listbugs` e `apt-listchanges` não estavam disponíveis na arquitetura ARM64 do Ubuntu 24.04 na data do desenvolvimento; por isso foram removidos.
 
-- **Package Availability**: During development, we found that the `apt-listbugs` and `apt-listchanges` packages were not available for the Ubuntu 24.04 ARM64 architecture. They have been removed from the playbook. If you re-enable them and encounter a "Package not found" error, this is the likely cause.
+## Estrutura do projeto
 
-## Playbook Structure
-- `inventory.ini`: Defines the server(s) to be configured.
-- `ansible.cfg`: Ansible configuration file.
-- `playbook.yml`: The main playbook that orchestrates all the configuration tasks.
-- `files/`: Contains configuration files to be copied to the server.
-  - `20auto-upgrades`: Config for unattended security updates.
-  - `99-custom.rules`: Custom rules for the `auditd` service.
-  - `99-disable-coredumps.conf`: Disables system core dumps.
-  - `99-disable-uncommon-net.conf`: Disables unused network protocols.
-  - `issue_banner`: The legal banner text for `/etc/issue`. 
+```
+.
+├── ansible.cfg
+├── files
+│   ├── 20auto-upgrades
+│   ├── 99-custom.rules
+│   ├── 99-disable-coredumps.conf
+│   ├── 99-disable-uncommon-net.conf
+│   └── issue_banner
+├── inventory.ini
+├── playbook.yml
+├── project.md
+└── README.md
+```
+
+---
+
+### Reforço manual adicional do SSH
+
+Os passos de hardening do serviço SSH são realizados manualmente para evitar perda de acesso. Siga as instruções acima para garantir a segurança do serviço. 

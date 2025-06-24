@@ -1,40 +1,39 @@
-# Ansible Ubuntu Server Setup Project
+# Projeto de Configuração de Servidor Ubuntu com Ansible
 
-This project contains an Ansible playbook to perform a secure initial setup and hardening for an Ubuntu LTS server.
+Este projeto contém um playbook Ansible que executa a configuração inicial e o endurecimento de segurança de um servidor Ubuntu LTS.
 
-## Project Goal
+## Objetivo do projeto
 
-The primary objective is to automate the hardening and configuration of a new Ubuntu server, ensuring a secure, stable, and consistent base for future applications, with configurations based on security best practices and tools like Lynis.
+Automatizar a preparação de um novo servidor Ubuntu, garantindo uma base segura, estável e consistente para futuras aplicações, seguindo boas práticas de segurança e utilizando ferramentas como o **Lynis**.
 
-## Key Configuration Steps
+## Etapas principais da configuração
 
-The Ansible playbook performs the following actions:
+O playbook realiza as seguintes ações:
 
-1.  **System Updates**: Updates all system packages to their latest versions.
-2.  **Repository Setup**: Correctly identifies the server's architecture (x86 or ARM) and enables the `universe` and `security` repositories.
-3.  **Package Installation**: Installs essential packages for security and administration, including `ufw`, `fail2ban`, `unattended-upgrades`, `auditd`, `lynis`, and `rkhunter`.
-4.  **Swap File Creation**: Creates a `4G` swap file to ensure system stability and tunes `swappiness` for server performance.
-5.  **User Management (Idempotent)**:
-    *   Checks if the `deploy` user exists.
-    *   If the user does *not* exist, it interactively prompts for a password and creates the new `deploy` user with `sudo` privileges.
-    *   If the user *does* exist, this step is skipped.
-6.  **Firewall (UFW) Configuration**:
-    *   Sets the default incoming policy to `deny` and outgoing to `allow`.
-    *   Rate-limits incoming connections on port 22 (SSH) to prevent brute-force attacks.
-    *   Allows traffic on ports 80 (HTTP) and 443 (HTTPS).
-    *   Enables the firewall.
-7.  **Security Hardening**:
-    *   **Fail2ban**: Enables and starts `fail2ban`.
-    *   **Unattended Upgrades**: Configures automatic installation of security patches.
-    *   **Shared Memory**: Secures shared memory (`/run/shm`).
-    *   **Login Security**: Hardens `/etc/login.defs` with a stricter `UMASK` and stronger `SHA512` password encryption.
-    *   **Core Dumps**: Disables core dumps.
-    *   **Kernel Hardening**: Disables uncommon network protocols.
-    *   **Legal Banner**: Creates a legal notice displayed before login.
-8.  **Auditd Configuration**: Installs `auditd` and applies a custom ruleset to monitor critical system events.
-9.  **Reboot**: Reboots the server after the configuration is applied to ensure all changes take effect.
+1. **Atualizações do sistema**: atualiza todos os pacotes para as versões mais recentes.
+2. **Configuração de repositórios**: identifica a arquitetura (x86 ou ARM) e habilita os repositórios `universe` e `security`.
+3. **Instalação de pacotes**: instala pacotes essenciais como `ufw`, `fail2ban`, `unattended-upgrades`, `auditd`, `lynis` e `rkhunter`.
+4. **Criação de arquivo de swap**: cria um arquivo de swap (tamanho definido em `group_vars/all.yml`) e ajusta o parâmetro `swappiness`.
+5. **Gerenciamento de usuários**:
+   * Pressupõe que o usuário `deploy` (com privilégios sudo) seja criado manualmente antes da execução.
+   * Todas as tarefas subsequentes são executadas por esse usuário via `become`.
+6. **Configuração do firewall (UFW)**:
+   * Define a política padrão de entrada como `deny` e saída como `allow`.
+   * Limita a taxa de conexões na porta 22 (SSH).
+   * Libera as portas 80 (HTTP) e 443 (HTTPS).
+   * Ativa o firewall.
+7. **Endurecimento de segurança**:
+   * **Fail2ban** habilitado.
+   * **Atualizações automáticas** configuradas.
+   * Memória compartilhada montada de forma segura.
+   * Regras de login reforçadas em `/etc/login.defs`.
+   * Desativação de core dumps.
+   * Desativação de protocolos de rede incomuns.
+   * Banner legal adicionado.
+8. **Configuração do Auditd**: aplica regras personalizadas para auditoria.
+9. **Reinicialização**: reinicia o servidor para aplicar todas as alterações.
 
-## Project Structure
+## Estrutura do projeto
 
 ```
 .
@@ -49,4 +48,4 @@ The Ansible playbook performs the following actions:
 ├── playbook.yml
 ├── project.md
 └── README.md
-``` 
+```
