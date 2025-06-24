@@ -219,6 +219,52 @@
       notify: Reiniciar auditd
       tags: [system, security, auditd]
 
+    # 6. Hardening adicional baseado em relatório Lynis
+    - name: "Instalar pacotes de auditoria recomendados (apt-listbugs, apt-listchanges, apt-show-versions, libpam-pwquality)"
+      ansible.builtin.apt:
+        name:
+          - apt-listbugs
+          - apt-listchanges
+          - apt-show-versions
+          - libpam-pwquality
+        state: present
+      tags: [system, lynis]
+
+    - name: "Copiar arquivo jail.local padrão para Fail2Ban"
+      ansible.builtin.copy:
+        src: files/jail.local
+        dest: /etc/fail2ban/jail.local
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Reiniciar Fail2Ban
+      tags: [system, lynis]
+
+    - name: "Endurecer banner e comandos do Postfix"
+      ansible.builtin.command: "postconf -e {{ item }}"
+      loop:
+        - "smtpd_banner=$myhostname ESMTP"
+        - "disable_vrfy_command=yes"
+      tags: [system, lynis]
+
+    - name: "Aplicar parâmetros sysctl recomendados pelo Lynis"
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { key: 'fs.protected_fifos',              value: '2' }
+        - { key: 'fs.protected_regular',            value: '2' }
+        - { key: 'kernel.kptr_restrict',            value: '2' }
+        - { key: 'kernel.dmesg_restrict',           value: '1' }
+        - { key: 'kernel.perf_event_paranoid',      value: '3' }
+        - { key: 'net.ipv4.conf.all.log_martians',  value: '1' }
+        - { key: 'net.ipv4.conf.default.log_martians', value: '1' }
+        - { key: 'net.core.bpf_jit_harden',         value: '2' }
+        - { key: 'net.ipv4.conf.all.rp_filter',     value: '1' }
+      tags: [system, lynis]
+
   handlers:
     - name: "Reiniciar Servidor"
       ansible.builtin.reboot:
@@ -232,4 +278,9 @@
     - name: "Reiniciar auditd"
       ansible.builtin.service:
         name: auditd
+        state: restarted
+
+    - name: "Reiniciar Fail2Ban"
+      ansible.builtin.service:
+        name: fail2ban
         state: restarted 
