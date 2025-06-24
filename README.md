@@ -43,7 +43,11 @@ Em seguida, edite `/etc/ssh/sshd_config` para:
 * (Opcional) Alterar a porta padrão do SSH;
 * Garantir que a autenticação por chave pública esteja ativada e a chave do usuário `deploy` em `~/.ssh/authorized_keys`.
 
-Caso altere a porta, libere-a no UFW **antes** de reiniciar o serviço.
+Caso altere a porta, libere-a no UFW **antes** de reiniciar o serviço:
+
+```bash
+ufw allow <porta>/tcp
+```
 
 Confirme que é possível acessar via `ssh deploy@servidor` antes de prosseguir.
 
@@ -77,7 +81,7 @@ ssh deploy@your_server_ip -p <porta>
 ## Observações
 
 - **Verificação de chave do host**: o `ansible.cfg` está com `host_key_checking = False` para conveniência em ambientes de teste. Em produção, altere para `True`.
-- **Disponibilidade de pacotes**: `apt-listbugs` e `apt-listchanges` não estavam disponíveis na arquitetura ARM64 do Ubuntu 24.04 na data do desenvolvimento; por isso foram removidos.
+- **Pacotes adicionais**: O playbook instala `apt-listchanges`, `apt-show-versions` e `libpam-pwquality` para auditoria/relatórios de atualização. O `apt-listbugs` foi omitido pois ainda não existe nos repositórios oficiais do Ubuntu 24.04.
 
 ## Estrutura do projeto
 
