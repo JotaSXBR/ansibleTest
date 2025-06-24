@@ -2,6 +2,8 @@
 - name: "Configuração Inicial do Servidor"
   hosts: servers
   become: true
+  collections:
+    - community.docker
   # Variáveis agora são fornecidas via group_vars/all.yml para portabilidade.
 
   tasks:
@@ -129,6 +131,19 @@
       community.general.ufw:
         state: enabled
       tags: [system, firewall]
+
+    # Abrir portas necessárias para um cluster Docker Swarm multi-nó
+    - name: "Abrir portas Docker Swarm (TCP/UDP)"
+      community.general.ufw:
+        rule: allow
+        port: "{{ item.port }}"
+        proto: "{{ item.proto }}"
+      loop:
+        - { port: "2377", proto: "tcp" }
+        - { port: "7946", proto: "tcp" }
+        - { port: "7946", proto: "udp" }
+        - { port: "4789", proto: "udp" }
+      tags: [system, firewall, swarm]
 
     # 5. Endurecimento de segurança
     - name: "Ativar e iniciar o serviço Fail2Ban"
@@ -322,6 +337,21 @@
         groups: docker
         append: yes
       tags: [docker]
+
+    # 8. Configuração do Docker Swarm
+    - name: "Inicializar Docker Swarm"
+      community.docker.docker_swarm:
+        state: present
+      run_once: true
+      tags: [docker, swarm]
+
+    - name: "Criar rede overlay main-proxy"
+      community.docker.docker_network:
+        name: main-proxy
+        driver: overlay
+        attachable: true
+      run_once: true
+      tags: [docker, swarm]
 
   handlers:
     - name: "Reiniciar Servidor"
