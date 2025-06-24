@@ -220,15 +220,22 @@
       tags: [system, security, auditd]
 
     # 6. Hardening adicional baseado em relatório Lynis
-    - name: "Instalar pacotes de auditoria recomendados (apt-listbugs, apt-listchanges, apt-show-versions, libpam-pwquality)"
+    - name: "Verificar se apt-listbugs existe no repositório"
+      ansible.builtin.shell: |
+        apt-cache policy apt-listbugs | grep -q 'Candidate:'
+      register: listbugs_available
+      changed_when: false
+      failed_when: false
+
+    - name: "Instalar pacotes recomendados (apt-listchanges, apt-show-versions, libpam-pwquality)"
       ansible.builtin.apt:
         name:
-          - apt-listbugs
-          - apt-listchanges
-          - apt-show-versions
-          - libpam-pwquality
+           - apt-listchanges
+           - apt-show-versions
+           - libpam-pwquality
         state: present
-      tags: [system, lynis]
+        update_cache: yes
+      when: item != 'apt-listbugs' or listbugs_available.rc == 0
 
     - name: "Copiar arquivo jail.local padrão para Fail2Ban"
       ansible.builtin.copy:
