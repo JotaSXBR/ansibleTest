@@ -1,25 +1,25 @@
 ---
-- name: "Initial Server Setup"
+- name: "Configuração Inicial do Servidor"
   hosts: servers
   become: true
   # Variáveis agora são fornecidas via group_vars/all.yml para portabilidade.
 
   tasks:
     # 1. Atualização do sistema e pacotes base
-    - name: "Update apt cache and upgrade all packages"
+    - name: "Atualizar cache do apt e atualizar todos os pacotes"
       ansible.builtin.apt:
         update_cache: yes
         upgrade: dist
         cache_valid_time: 3600
       tags: [system, packages]
 
-    - name: "Define architecture-specific APT repository URLs"
+    - name: "Definir URLs de repositório APT específicas da arquitetura"
       ansible.builtin.set_fact:
         apt_repo_url: "{{ 'http://ports.ubuntu.com/ubuntu-ports' if 'arm' in ansible_architecture or 'aarch64' in ansible_architecture else 'http://archive.ubuntu.com/ubuntu' }}"
         apt_security_url: "{{ 'http://ports.ubuntu.com/ubuntu-ports' if 'arm' in ansible_architecture or 'aarch64' in ansible_architecture else 'http://security.ubuntu.com/ubuntu' }}"
       tags: [system, packages]
 
-    - name: "Ensure universe and security repositories are enabled"
+    - name: "Garantir que os repositórios universe e security estejam habilitados"
       ansible.builtin.apt_repository:
         repo: "{{ item }}"
         state: present
@@ -28,12 +28,12 @@
         - "deb {{ apt_security_url }} {{ ansible_distribution_release }}-security main restricted universe multiverse"
       tags: [system, packages]
 
-    - name: "Update apt cache after adding new repositories"
+    - name: "Atualizar cache do apt após adicionar novos repositórios"
       ansible.builtin.apt:
         update_cache: yes
       tags: [system, packages]
 
-    - name: "Install common and required packages"
+    - name: "Instalar pacotes comuns e necessários"
       ansible.builtin.apt:
         name:
           # Pacotes base
@@ -58,42 +58,42 @@
       tags: [system, packages]
 
     # 2. Criação do arquivo de swap
-    - name: "Check if swap file exists"
+    - name: "Verificar se o arquivo de swap existe"
       ansible.builtin.stat:
         path: /swapfile
       register: swap_file_check
       tags: [system, swap]
 
-    - name: "Create swap file"
+    - name: "Criar arquivo de swap"
       ansible.builtin.command: "fallocate -l {{ swap_file_size }} /swapfile"
       when: not swap_file_check.stat.exists
       tags: [system, swap]
 
-    - name: "Set swap file permissions"
+    - name: "Definir permissões do arquivo de swap"
       ansible.builtin.file:
         path: /swapfile
         mode: '0600'
       when: not swap_file_check.stat.exists
       tags: [system, swap]
 
-    - name: "Make swap file"
+    - name: "Formatar arquivo de swap"
       ansible.builtin.command: mkswap /swapfile
       when: not swap_file_check.stat.exists
       tags: [system, swap]
 
-    - name: "Turn on swap"
+    - name: "Ativar swap"
       ansible.builtin.command: swapon /swapfile
       when: not swap_file_check.stat.exists
       tags: [system, swap]
 
-    - name: "Add swap to fstab"
+    - name: "Adicionar swap no fstab"
       ansible.builtin.lineinfile:
         path: /etc/fstab
         line: "/swapfile none swap sw 0 0"
         state: present
       tags: [system, swap]
 
-    - name: "Tune swappiness"
+    - name: "Ajustar swappiness"
       ansible.posix.sysctl:
         name: vm.swappiness
         value: '10'
@@ -105,7 +105,7 @@
     # NOTA: A criação do usuário `deploy` e o hardening do SSH agora devem ser executados manualmente antes da execução do playbook.
 
     # 4. Configuração do firewall (UFW)
-    - name: "Set UFW default policies"
+    - name: "Definir políticas padrão do UFW"
       community.general.ufw:
         default: "{{ item.policy }}"
         direction: "{{ item.direction }}"
@@ -114,14 +114,14 @@
         - { direction: 'outgoing', policy: 'allow' }
       tags: [system, firewall]
 
-    - name: "Rate-limit SSH connections"
+    - name: "Limitar taxa de conexões SSH"
       community.general.ufw:
         rule: limit
         port: "{{ ssh_port }}"
         proto: tcp
       tags: [system, firewall]
 
-    - name: "Allow HTTP and HTTPS traffic"
+    - name: "Permitir tráfego HTTP e HTTPS"
       community.general.ufw:
         rule: allow
         port: "{{ item }}"
@@ -131,20 +131,20 @@
         - "443"
       tags: [system, firewall]
 
-    - name: "Enable UFW"
+    - name: "Habilitar UFW"
       community.general.ufw:
         state: enabled
       tags: [system, firewall]
 
     # 5. Endurecimento de segurança
-    - name: "Enable and start Fail2Ban service"
+    - name: "Ativar e iniciar o serviço Fail2Ban"
       ansible.builtin.service:
         name: fail2ban
         enabled: yes
         state: started
       tags: [system, security]
 
-    - name: "Enable automatic security updates"
+    - name: "Habilitar atualizações automáticas de segurança"
       ansible.builtin.copy:
         src: files/20auto-upgrades
         dest: /etc/apt/apt.conf.d/20auto-upgrades
@@ -153,7 +153,7 @@
         mode: '0644'
       tags: [system, security]
 
-    - name: "Secure shared memory"
+    - name: "Proteger memória compartilhada"
       ansible.builtin.lineinfile:
         path: /etc/fstab
         line: "tmpfs /run/shm tmpfs ro,noexec,nosuid 0 0"
@@ -161,7 +161,7 @@
       notify: Reboot Server
       tags: [system, security]
       
-    - name: "Harden login definitions"
+    - name: "Endurecer definições de login"
       ansible.builtin.lineinfile:
         path: /etc/login.defs
         regexp: "{{ item.regexp }}"
@@ -171,14 +171,14 @@
         - { regexp: '^ENCRYPT_METHOD', line: 'ENCRYPT_METHOD SHA512' }
       tags: [system, security]
 
-    - name: "Set minimum rounds for SHA-based password encryption"
+    - name: "Definir rodadas mínimas para criptografia de senhas SHA"
       ansible.builtin.lineinfile:
         path: /etc/login.defs
         line: "SHA_CRYPT_MIN_ROUNDS 500000"
         state: present
       tags: [system, security]
 
-    - name: "Disable core dumps"
+    - name: "Desabilitar core dumps"
       ansible.builtin.copy:
         src: files/99-disable-coredumps.conf
         dest: /etc/security/limits.d/99-disable-coredumps.conf
@@ -187,7 +187,7 @@
         mode: '0644'
       tags: [system, security]
 
-    - name: "Disable uncommon network protocols"
+    - name: "Desabilitar protocolos de rede incomuns"
       ansible.builtin.copy:
         src: files/99-disable-uncommon-net.conf
         dest: /etc/modprobe.d/99-disable-uncommon-net.conf
@@ -196,7 +196,7 @@
         mode: '0644'
       tags: [system, security]
       
-    - name: "Add legal banner"
+    - name: "Adicionar banner legal"
       ansible.builtin.copy:
         src: files/issue_banner
         dest: "{{ item }}"
@@ -209,18 +209,18 @@
       tags: [system, security]
     
     # 6. Configuração do Auditd
-    - name: "Copy custom auditd rules"
+    - name: "Copiar regras personalizadas do auditd"
       ansible.builtin.copy:
         src: files/99-custom.rules
         dest: /etc/audit/rules.d/99-custom.rules
         owner: root
         group: root
         mode: '0644'
-      notify: Restart auditd
+      notify: Reiniciar auditd
       tags: [system, security, auditd]
 
   handlers:
-    - name: "Reboot Server"
+    - name: "Reiniciar Servidor"
       ansible.builtin.reboot:
         msg: "Rebooting server to apply changes"
         connect_timeout: 5
@@ -229,7 +229,7 @@
         post_reboot_delay: 30
         test_command: whoami
     
-    - name: "Restart auditd"
+    - name: "Reiniciar auditd"
       ansible.builtin.service:
         name: auditd
         state: restarted 
