@@ -1,2 +1,3 @@
-swap_file_size: 4G
+# swap_file_size: definido dinamicamente em pre_tasks (fallback caso deseje forçar tamanho)
+# swap_file_size: 4G
 ssh_port: 22 

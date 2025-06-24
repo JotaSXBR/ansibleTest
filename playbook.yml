@@ -4,7 +4,21 @@
   become: true
   collections:
     - community.docker
+  gather_facts: yes
   # Variáveis agora são fornecidas via group_vars/all.yml para portabilidade.
+
+  pre_tasks:
+    - name: "Falhar se não for Debian/Ubuntu"
+      ansible.builtin.fail:
+        msg: "Sistema operacional não suportado. Este playbook requer uma distribuição Debian/Ubuntu."
+      when: ansible_os_family != 'Debian'
+      tags: always
+
+    - name: "Definir swap_file_size dinamicamente se não estiver definido"
+      ansible.builtin.set_fact:
+        swap_file_size: "{{ (ansible_memtotal_mb | int) < 2048 | ternary('1G', '2G') }}"
+      when: swap_file_size is not defined
+      tags: [system, swap]
 
   tasks:
     # 1. Atualização do sistema e pacotes base
@@ -324,6 +338,16 @@
         state: present
       tags: [docker]
 
+    - name: "Configurar daemon Docker"
+      ansible.builtin.copy:
+        src: files/daemon.json
+        dest: /etc/docker/daemon.json
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart docker
+      tags: [docker]
+
     - name: "Habilitar e iniciar serviço Docker"
       ansible.builtin.service:
         name: docker
@@ -342,7 +366,7 @@
     - name: "Inicializar Docker Swarm"
       community.docker.docker_swarm:
         state: present
-      run_once: true
+      when: inventory_hostname == groups['managers'][0]
       tags: [docker, swarm]
 
     - name: "Criar rede overlay main-proxy"
@@ -350,7 +374,7 @@
         name: main-proxy
         driver: overlay
         attachable: true
-      run_once: true
+      when: inventory_hostname == groups['managers'][0]
       tags: [docker, swarm]
 
   handlers:
@@ -380,4 +404,9 @@
 
     - name: "Aplicar sysctl"
       ansible.builtin.command: sysctl --system
-      changed_when: false 
+      changed_when: false
+
+    - name: Restart docker
+      ansible.builtin.service:
+        name: docker
+        state: restarted 

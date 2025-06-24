@@ -78,6 +78,26 @@ ssh deploy@your_server_ip
 ssh deploy@your_server_ip -p <porta>
 ```
 
+### 5. Execução em Fases (opcional)
+
+O playbook possui tags granulares. Em produção, você pode executar em etapas para reduzir janelas de indisponibilidade:
+
+```bash
+# 1) Pacotes do sistema e atualizações
+ansible-playbook playbook.yml -i inventory.ini --tags system,packages
+
+# 2) Configuração de swap
+ansible-playbook playbook.yml -i inventory.ini --tags system,swap
+
+# 3) Hardening de segurança (pode direcionar ambiente de staging) 
+ansible-playbook playbook.yml -i inventory.ini --tags system,security -l staging
+
+# 4) Instalação do Docker e Swarm
+ansible-playbook playbook.yml -i inventory.ini --tags docker,swarm
+```
+
+> As tags `always` são executadas em qualquer chamada, independentemente dos filtros.
+
 ## Observações
 
 - **Verificação de chave do host**: o `ansible.cfg` está com `host_key_checking = False` para conveniência em ambientes de teste. Em produção, altere para `True`.
